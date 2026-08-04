@@ -2,6 +2,15 @@
 name = "code-analyzer"
 version = "0.1.0"
 edition = "2024"
+authors = ["Jithin Aji <jithin@example.com>"]
+description = "A lightweight terminal application to analyze and compare source files"
+license = "MIT"
+
+[package.metadata.deb]
+maintainer = "Jithin Aji <jithin@example.com>"
+assets = [
+    ["target/release/code-analyzer", "usr/bin/code-analyzer", "755"],
+]
 
 [dependencies]
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
