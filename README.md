@@ -50,7 +50,7 @@ code-analyzer --help
 
 ### Analyze a Source File
 
-Analyze a source file and display the results in the terminal:
+Analyze a source file and display the results in the terminal (including function-level metrics):
 
 ```bash
 code-analyzer analyze <source-file>
@@ -59,6 +59,21 @@ code-analyzer analyze <source-file>
 Example:
 ```bash
 code-analyzer analyze sample.js
+```
+
+Example Output:
+```text
+Total lines: 23
+Non-empty lines: 17
+Language: JavaScript
+Import lines: 2
+Function definitions: 4
+
+Functions:
+  - add (lines 6-8, total: 3, non-empty: 3)
+  - fetchData (lines 11-14, total: 4, non-empty: 4)
+  - multiply (lines 17-17, total: 1, non-empty: 1)
+  - greet (lines 18-18, total: 1, non-empty: 1)
 ```
 
 ### Save Analysis Results to Log File
@@ -85,6 +100,29 @@ code-analyzer compare <source-file> <previous-log-file>
 Example:
 ```bash
 code-analyzer compare sample.js analysis.log
+```
+
+Example Output:
+```text
+Comparison: sample.js vs analysis.log
+
+Source file:          sample.js (current) vs sample.js (baseline)
+Language:             JavaScript (current) vs JavaScript (baseline)
+Analyzed at:          2026-08-05T01:20:00Z (current) vs 2026-08-05T01:10:00Z (baseline)
+
+Total lines:           23  → 23   (unchanged)
+Non-empty lines:       17  → 17   (unchanged)
+Import lines:          2   → 2    (unchanged)
+Function definitions:  4   → 4    (unchanged)
+
+Function-Level Comparisons:
+  Changed/Unchanged Functions:
+    - add: 3 → 3 lines (unchanged)
+    - fetchData: 3 → 4 lines (+1, increased)
+  Added Functions:
+    - greet (lines 18-18, total: 1)
+  Removed Functions:
+    - oldHelper (total: 5)
 ```
 
 ---

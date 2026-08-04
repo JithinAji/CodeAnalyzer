@@ -21,6 +21,15 @@ impl Language {
     }
 }
 
+#[derive(Debug, Clone, PartialEq)]
+struct FunctionResult {
+    name: String,
+    start_line: usize,
+    end_line: usize,
+    total_lines: usize,
+    non_empty_lines: usize,
+}
+
 #[derive(Debug)]
 struct AnalysisResult {
     source_file: String,
@@ -30,6 +39,7 @@ struct AnalysisResult {
     non_empty_lines: usize,
     import_lines: usize,
     function_definitions: usize,
+    functions: Vec<FunctionResult>,
 }
 
 #[derive(Debug, PartialEq)]
@@ -103,6 +113,15 @@ fn main() {
                         } else {
                             println!("Import lines: {}", result.import_lines);
                             println!("Function definitions: {}", result.function_definitions);
+                            if !result.functions.is_empty() {
+                                println!("\nFunctions:");
+                                for func in &result.functions {
+                                    println!(
+                                        "  - {} (lines {}-{}, total: {}, non-empty: {})",
+                                        func.name, func.start_line, func.end_line, func.total_lines, func.non_empty_lines
+                                    );
+                                }
+                            }
                         }
                     }
                 }
@@ -149,39 +168,154 @@ fn analyze_file(filename: &str) -> io::Result<AnalysisResult> {
     let file = File::open(filename)?;
     let reader = BufReader::new(file);
 
-    let mut total_lines = 0;
+    let mut lines = Vec::new();
+    for line in reader.lines() {
+        lines.push(line?);
+    }
+
+    let total_lines = lines.len();
     let mut non_empty_lines = 0;
     let mut import_lines = 0;
     let mut function_definitions = 0;
+    let mut functions = Vec::new();
 
-    for line in reader.lines() {
-        let line = line?;
-        total_lines += 1;
-
+    // Iterate through lines to detect imports and overall non-empty lines
+    for line in &lines {
         if !line.trim().is_empty() {
             non_empty_lines += 1;
         }
-
         let trimmed_start = line.trim_start();
         match language {
             Language::Rust => {
                 if trimmed_start.starts_with("use ") || trimmed_start.starts_with("extern crate ") {
                     import_lines += 1;
                 }
-                if is_rust_function_definition(&line) {
-                    function_definitions += 1;
-                }
             }
             Language::JavaScript => {
                 if trimmed_start.starts_with("import ") || trimmed_start.contains("require(") {
                     import_lines += 1;
                 }
-                if is_javascript_function_definition(&line) {
-                    function_definitions += 1;
-                }
             }
             Language::Unsupported => {}
         }
+    }
+
+    // Parse functions if the language is supported
+    match language {
+        Language::Rust | Language::JavaScript => {
+            let mut line_idx = 0;
+            while line_idx < lines.len() {
+                let line = &lines[line_idx];
+                let is_func = match language {
+                    Language::Rust => is_rust_function_definition(line),
+                    Language::JavaScript => is_javascript_function_definition(line),
+                    Language::Unsupported => false,
+                };
+
+                if is_func {
+                    function_definitions += 1;
+                    let start_line = line_idx + 1;
+                    
+                    // Parse function name
+                    let name = match language {
+                        Language::Rust => extract_rust_function_name(line).unwrap_or_else(|| format!("fn_at_{}", start_line)),
+                        Language::JavaScript => extract_js_function_name(line).unwrap_or_else(|| format!("fn_at_{}", start_line)),
+                        _ => format!("fn_at_{}", start_line),
+                    };
+
+                    // Trace function body to find its ending line.
+                    // We need to count braces.
+                    let mut brace_depth = 0;
+                    let mut found_start_brace = false;
+                    let mut current_idx = line_idx;
+                    
+                    // Scan characters from current line onwards
+                    while current_idx < lines.len() {
+                        let cur_line = &lines[current_idx];
+                        
+                        // Simple parser for characters in the line to ignore strings/comments
+                        let mut chars = cur_line.chars().peekable();
+                        let mut in_single_quote = false;
+                        let mut in_double_quote = false;
+                        let mut in_backtick = false;
+                        let mut in_line_comment = false;
+                        let mut escaped = false;
+                        
+                        while let Some(c) = chars.next() {
+                            if escaped {
+                                escaped = false;
+                                continue;
+                            }
+                            if in_line_comment {
+                                break;
+                            }
+                            match c {
+                                '\\' => {
+                                    escaped = true;
+                                }
+                                '/' if !in_single_quote && !in_double_quote && !in_backtick => {
+                                    if let Some('/') = chars.peek() {
+                                        in_line_comment = true;
+                                    }
+                                }
+                                '\'' if !in_double_quote && !in_backtick => {
+                                    in_single_quote = !in_single_quote;
+                                }
+                                '"' if !in_single_quote && !in_backtick => {
+                                    in_double_quote = !in_double_quote;
+                                }
+                                '`' if !in_single_quote && !in_double_quote => {
+                                    in_backtick = !in_backtick;
+                                }
+                                '{' if !in_single_quote && !in_double_quote && !in_backtick => {
+                                    brace_depth += 1;
+                                    found_start_brace = true;
+                                }
+                                '}' if !in_single_quote && !in_double_quote && !in_backtick => {
+                                    if brace_depth > 0 {
+                                        brace_depth -= 1;
+                                    }
+                                }
+                                _ => {}
+                            }
+                        }
+
+                        if found_start_brace && brace_depth == 0 {
+                            break;
+                        }
+                        current_idx += 1;
+                    }
+
+                    let end_line = if current_idx < lines.len() {
+                        current_idx + 1
+                    } else {
+                        lines.len()
+                    };
+
+                    let total_func_lines = end_line - start_line + 1;
+                    let mut non_empty_func_lines = 0;
+                    for l in start_line..=end_line {
+                        if l <= lines.len() && !lines[l - 1].trim().is_empty() {
+                            non_empty_func_lines += 1;
+                        }
+                    }
+
+                    functions.push(FunctionResult {
+                        name,
+                        start_line,
+                        end_line,
+                        total_lines: total_func_lines,
+                        non_empty_lines: non_empty_func_lines,
+                    });
+
+                    // Advance line_idx to end of function to avoid scanning inner functions
+                    line_idx = end_line;
+                } else {
+                    line_idx += 1;
+                }
+            }
+        }
+        _ => {}
     }
 
     let analyzed_at = Utc::now().to_rfc3339_opts(chrono::SecondsFormat::Secs, true);
@@ -194,7 +328,61 @@ fn analyze_file(filename: &str) -> io::Result<AnalysisResult> {
         non_empty_lines,
         import_lines,
         function_definitions,
+        functions,
     })
+}
+
+fn extract_rust_function_name(line: &str) -> Option<String> {
+    let trimmed = line.trim_start();
+    let parts: Vec<&str> = trimmed.split_whitespace().collect();
+    let fn_idx = parts.iter().position(|&s| s == "fn")?;
+    if fn_idx + 1 < parts.len() {
+        let name_part = parts[fn_idx + 1];
+        let name = name_part.split('(').next()?;
+        Some(name.trim().to_string())
+    } else {
+        None
+    }
+}
+
+fn extract_js_function_name(line: &str) -> Option<String> {
+    let line_without_comment = match line.find("//") {
+        Some(idx) => &line[..idx],
+        None => line,
+    };
+    let trimmed = line_without_comment.trim_start();
+    
+    // Traditional: function name(...)
+    if trimmed.contains("function ") || trimmed.contains("function(") {
+        let parts: Vec<&str> = trimmed.split_whitespace().collect();
+        let func_idx = parts.iter().position(|&s| s.starts_with("function"))?;
+        if func_idx + 1 < parts.len() {
+            let name_part = parts[func_idx + 1];
+            if let Some(name) = name_part.split('(').next() {
+                if !name.trim().is_empty() {
+                    return Some(name.trim().to_string());
+                }
+            }
+        }
+        // Anonymous or default export
+        return Some("anonymous".to_string());
+    }
+
+    // Arrow functions: const multiply = (a, b) => a * b;
+    if trimmed.starts_with("const ") || trimmed.starts_with("let ") || trimmed.starts_with("var ") || trimmed.starts_with("export const ") || trimmed.starts_with("export let ") {
+        let clean_trimmed = if trimmed.starts_with("export ") {
+            trimmed["export ".len()..].trim_start()
+        } else {
+            trimmed
+        };
+        let parts: Vec<&str> = clean_trimmed.split_whitespace().collect();
+        if parts.len() >= 2 {
+            let name = parts[1];
+            return Some(name.trim().to_string());
+        }
+    }
+
+    None
 }
 
 /// Saves an `AnalysisResult` to a structured key-value log file.
@@ -211,6 +399,13 @@ fn save_analysis_result(result: &AnalysisResult, log_filename: &str) -> io::Resu
     writeln!(file, "non_empty_lines={}", result.non_empty_lines)?;
     writeln!(file, "import_lines={}", result.import_lines)?;
     writeln!(file, "function_definitions={}", result.function_definitions)?;
+    for func in &result.functions {
+        writeln!(
+            file,
+            "function={}:{}:{}:{}:{}",
+            func.name, func.start_line, func.end_line, func.total_lines, func.non_empty_lines
+        )?;
+    }
     writeln!(file)?;
     Ok(())
 }
@@ -232,12 +427,35 @@ fn parse_analysis_result(log_filename: &str) -> io::Result<AnalysisResult> {
     let mut non_empty_lines = None;
     let mut import_lines = None;
     let mut function_definitions = None;
+    let mut functions = Vec::new();
 
-    for (line_idx, line) in reader.lines().enumerate() {
+    // Since a log file can contain multiple reports appended, we need to extract the LAST report.
+    // Let's first read all lines and group them into blocks separated by empty lines.
+    let mut blocks = Vec::new();
+    let mut current_block = Vec::new();
+    for line in reader.lines() {
         let line = line?;
         if line.trim().is_empty() {
-            continue;
+            if !current_block.is_empty() {
+                blocks.push(current_block);
+                current_block = Vec::new();
+            }
+        } else {
+            current_block.push(line);
         }
+    }
+    if !current_block.is_empty() {
+        blocks.push(current_block);
+    }
+
+    let last_block = blocks.last().ok_or_else(|| {
+        io::Error::new(
+            io::ErrorKind::InvalidData,
+            format!("Log file '{}' is empty", log_filename),
+        )
+    })?;
+
+    for (line_idx, line) in last_block.iter().enumerate() {
         let parts: Vec<&str> = line.splitn(2, '=').collect();
         if parts.len() != 2 {
             return Err(io::Error::new(
@@ -286,6 +504,35 @@ fn parse_analysis_result(log_filename: &str) -> io::Result<AnalysisResult> {
                         ),
                     )
                 })?);
+            }
+            "function" => {
+                let f_parts: Vec<&str> = val.split(':').collect();
+                if f_parts.len() != 5 {
+                    return Err(io::Error::new(
+                        io::ErrorKind::InvalidData,
+                        format!("Malformed function entry in '{}': {}", log_filename, val),
+                    ));
+                }
+                let name = f_parts[0].to_string();
+                let start_line = f_parts[1].parse::<usize>().map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "Invalid start_line in function log")
+                })?;
+                let end_line = f_parts[2].parse::<usize>().map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "Invalid end_line in function log")
+                })?;
+                let total_lines = f_parts[3].parse::<usize>().map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "Invalid total_lines in function log")
+                })?;
+                let non_empty_lines = f_parts[4].parse::<usize>().map_err(|_| {
+                    io::Error::new(io::ErrorKind::InvalidData, "Invalid non_empty_lines in function log")
+                })?;
+                functions.push(FunctionResult {
+                    name,
+                    start_line,
+                    end_line,
+                    total_lines,
+                    non_empty_lines,
+                });
             }
             _ => {}
         }
@@ -337,6 +584,7 @@ fn parse_analysis_result(log_filename: &str) -> io::Result<AnalysisResult> {
                 ),
             )
         })?,
+        functions,
     })
 }
 
@@ -356,6 +604,65 @@ fn compare_current_with_log(source_file: &str, log_filename: &str) -> io::Result
     print_comparison_metric("Non-empty lines:", old.non_empty_lines, new.non_empty_lines);
     print_comparison_metric("Import lines:", old.import_lines, new.import_lines);
     print_comparison_metric("Function definitions:", old.function_definitions, new.function_definitions);
+    println!();
+
+    // Perform function-level comparisons
+    println!("Function-Level Comparisons:");
+    
+    // Group functions by name
+    let mut changed = Vec::new();
+    let mut added = Vec::new();
+    let mut removed = Vec::new();
+
+    for new_func in &new.functions {
+        if let Some(old_func) = old.functions.iter().find(|f| f.name == new_func.name) {
+            changed.push((old_func.clone(), new_func.clone()));
+        } else {
+            added.push(new_func.clone());
+        }
+    }
+
+    for old_func in &old.functions {
+        if !new.functions.iter().any(|f| f.name == old_func.name) {
+            removed.push(old_func.clone());
+        }
+    }
+
+    if !changed.is_empty() {
+        println!("  Changed/Unchanged Functions:");
+        for (old_f, new_f) in &changed {
+            let diff = (new_f.total_lines as isize) - (old_f.total_lines as isize);
+            let status = if diff > 0 {
+                format!("+{}, increased", diff)
+            } else if diff < 0 {
+                format!("-{}, decreased", -diff)
+            } else {
+                "unchanged".to_string()
+            };
+            println!(
+                "    - {}: {} → {} lines ({})",
+                new_f.name, old_f.total_lines, new_f.total_lines, status
+            );
+        }
+    }
+
+    if !added.is_empty() {
+        println!("  Added Functions:");
+        for f in &added {
+            println!("    - {} (lines {}-{}, total: {})", f.name, f.start_line, f.end_line, f.total_lines);
+        }
+    }
+
+    if !removed.is_empty() {
+        println!("  Removed Functions:");
+        for f in &removed {
+            println!("    - {} (total: {})", f.name, f.total_lines);
+        }
+    }
+
+    if changed.is_empty() && added.is_empty() && removed.is_empty() {
+        println!("  No function-level metrics to compare (or file does not contain functions).");
+    }
 
     Ok(())
 }
@@ -540,6 +847,13 @@ mod tests {
             non_empty_lines: 8,
             import_lines: 2,
             function_definitions: 1,
+            functions: vec![FunctionResult {
+                name: "test_fn".to_string(),
+                start_line: 4,
+                end_line: 8,
+                total_lines: 5,
+                non_empty_lines: 4,
+            }],
         };
 
         // 1. Verify file is created and contains correct fields
@@ -554,6 +868,7 @@ mod tests {
         assert!(contents1.contains("non_empty_lines=8"));
         assert!(contents1.contains("import_lines=2"));
         assert!(contents1.contains("function_definitions=1"));
+        assert!(contents1.contains("function=test_fn:4:8:5:4"));
 
         // 2. Verify append behavior
         let result2 = AnalysisResult {
@@ -564,6 +879,7 @@ mod tests {
             non_empty_lines: 15,
             import_lines: 3,
             function_definitions: 2,
+            functions: vec![],
         };
 
         save_analysis_result(&result2, log_file_str).unwrap();
@@ -582,6 +898,7 @@ mod tests {
         assert_eq!(parsed.non_empty_lines, 15);
         assert_eq!(parsed.import_lines, 3);
         assert_eq!(parsed.function_definitions, 2);
+        assert!(parsed.functions.is_empty());
 
         // Clean up
         let _ = std::fs::remove_file(&log_path);
@@ -608,6 +925,7 @@ mod tests {
             non_empty_lines: 8,
             import_lines: 2,
             function_definitions: 1,
+            functions: vec![],
         };
 
         save_analysis_result(&old_res, old_str).unwrap();
@@ -754,6 +1072,96 @@ mod tests {
             parse_args(&vec![program.clone(), "help".to_string()]),
             Ok(Command::Help)
         );
+    }
+
+    #[test]
+    fn test_rust_and_js_function_parsing() {
+        let mut rust_path = std::env::temp_dir();
+        rust_path.push(format!("test_fn_rust_{}.rs", Utc::now().timestamp_millis()));
+        let rust_str = rust_path.to_str().unwrap();
+
+        let rust_code = r#"
+fn test_one() {
+    println!("Hello");
+}
+
+fn test_two(x: i32) -> i32 {
+    
+    x + 1
+}
+"#;
+        std::fs::write(&rust_path, rust_code).unwrap();
+        let res = analyze_file(rust_str).unwrap();
+        assert_eq!(res.functions.len(), 2);
+        assert_eq!(res.functions[0].name, "test_one");
+        assert_eq!(res.functions[0].start_line, 2);
+        assert_eq!(res.functions[0].end_line, 4);
+        assert_eq!(res.functions[0].total_lines, 3);
+        assert_eq!(res.functions[0].non_empty_lines, 3);
+
+        assert_eq!(res.functions[1].name, "test_two");
+        assert_eq!(res.functions[1].start_line, 6);
+        assert_eq!(res.functions[1].end_line, 9);
+        assert_eq!(res.functions[1].total_lines, 4);
+        assert_eq!(res.functions[1].non_empty_lines, 3);
+
+        let _ = std::fs::remove_file(&rust_path);
+
+        let mut js_path = std::env::temp_dir();
+        js_path.push(format!("test_fn_js_{}.js", Utc::now().timestamp_millis()));
+        let js_str = js_path.to_str().unwrap();
+
+        let js_code = r#"
+function calculate(a) {
+    return a * 2;
+}
+const add = (x, y) => {
+    return x + y;
+};
+"#;
+        std::fs::write(&js_path, js_code).unwrap();
+        let res = analyze_file(js_str).unwrap();
+        assert_eq!(res.functions.len(), 2);
+        assert_eq!(res.functions[0].name, "calculate");
+        assert_eq!(res.functions[1].name, "add");
+        assert_eq!(res.functions[0].total_lines, 3);
+        assert_eq!(res.functions[1].total_lines, 3);
+
+        let _ = std::fs::remove_file(&js_path);
+    }
+
+    #[test]
+    fn test_compatibility_older_logs_missing_functions() {
+        let mut log_path = std::env::temp_dir();
+        log_path.push(format!("old_format_{}.log", Utc::now().timestamp_millis()));
+        let log_str = log_path.to_str().unwrap();
+
+        let old_content = "source_file=test.rs\nlanguage=Rust\nanalyzed_at=2026-08-05T00:15:00Z\ntotal_lines=10\nnon_empty_lines=8\nimport_lines=2\nfunction_definitions=1\n";
+        std::fs::write(&log_path, old_content).unwrap();
+
+        // Should parse successfully without crashing, returning empty functions
+        let res = parse_analysis_result(log_str);
+        assert!(res.is_ok());
+        let parsed = res.unwrap();
+        assert_eq!(parsed.functions.len(), 0);
+
+        let _ = std::fs::remove_file(&log_path);
+    }
+
+    #[test]
+    fn test_malformed_function_log_data() {
+        let mut log_path = std::env::temp_dir();
+        log_path.push(format!("malformed_fn_{}.log", Utc::now().timestamp_millis()));
+        let log_str = log_path.to_str().unwrap();
+
+        let content = "source_file=test.rs\nlanguage=Rust\nanalyzed_at=2026-08-05T00:15:00Z\ntotal_lines=10\nnon_empty_lines=8\nimport_lines=2\nfunction_definitions=1\nfunction=bad_format:1\n";
+        std::fs::write(&log_path, content).unwrap();
+
+        let res = parse_analysis_result(log_str);
+        assert!(res.is_err());
+        assert!(res.unwrap_err().to_string().contains("Malformed function entry"));
+
+        let _ = std::fs::remove_file(&log_path);
     }
 }
 
