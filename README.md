@@ -1,6 +1,18 @@
-# Code Analyzer CLI
+# Code Analyzer
 
-A lightweight command-line tool in Rust for analyzing and comparing source files (supporting Rust `.rs` and JavaScript `.js`/`.mjs`/`.cjs`).
+A powerful Rust-based tool for analyzing and comparing source code files (supporting Rust `.rs` and JavaScript `.js`/`.mjs`/`.cjs`). It features a rich **Interactive Terminal UI (TUI)** and a robust **Command-Line Interface (CLI)**.
+
+---
+
+## Features
+
+- **Interactive TUI:** A full-terminal dashboard to analyze files, select/compare multiple logs, manage (view/delete) saved logs, and change current workspaces.
+- **Static Code Analysis:** Analyze line counts, import lines, and function definitions.
+- **Function-Scoped Analysis:** Zoom into specific functions using the `--function` flag.
+- **Multi-Log Comparison:** Compare 2 or more logs (or source files) to identify metrics diffs, trends, and anomalies.
+- **Cross-Platform support:** Runs seamlessly on macOS and Linux.
+
+---
 
 ## Installation
 
@@ -46,92 +58,69 @@ code-analyzer --help
 
 ---
 
-## Usage Examples
+## Interactive TUI Mode
 
-### Analyze a Source File
-
-Analyze a source file and display the results in the terminal (including function-level metrics):
+To launch the interactive TUI, run `code-analyzer` without any arguments:
 
 ```bash
-code-analyzer analyze <source-file>
+code-analyzer
 ```
 
-Example:
-```bash
-code-analyzer analyze sample.js
-```
-
-Example Output:
-```text
-Total lines: 23
-Non-empty lines: 17
-Language: JavaScript
-Import lines: 2
-Function definitions: 4
-
-Functions:
-  - add (lines 6-8, total: 3, non-empty: 3)
-  - fetchData (lines 11-14, total: 4, non-empty: 4)
-  - multiply (lines 17-17, total: 1, non-empty: 1)
-  - greet (lines 18-18, total: 1, non-empty: 1)
-```
-
-### Save Analysis Results to Log File
-
-Run the analysis and save or append the results to a structured log file:
-
-```bash
-code-analyzer analyze <source-file> <log-file>
-```
-
-Example:
-```bash
-code-analyzer analyze sample.js analysis.log
-```
-
-### Compare Source File with Baseline Log
-
-Analyze a source file in memory and compare it to a previously saved baseline log:
-
-```bash
-code-analyzer compare <source-file> <previous-log-file>
-```
-
-Example:
-```bash
-code-analyzer compare sample.js analysis.log
-```
-
-Example Output:
-```text
-Comparison: sample.js vs analysis.log
-
-Source file:          sample.js (current) vs sample.js (baseline)
-Language:             JavaScript (current) vs JavaScript (baseline)
-Analyzed at:          2026-08-05T01:20:00Z (current) vs 2026-08-05T01:10:00Z (baseline)
-
-Total lines:           23  → 23   (unchanged)
-Non-empty lines:       17  → 17   (unchanged)
-Import lines:          2   → 2    (unchanged)
-Function definitions:  4   → 4    (unchanged)
-
-Function-Level Comparisons:
-  Changed/Unchanged Functions:
-    - add: 3 → 3 lines (unchanged)
-    - fetchData: 3 → 4 lines (+1, increased)
-  Added Functions:
-    - greet (lines 18-18, total: 1)
-  Removed Functions:
-    - oldHelper (total: 5)
-```
+### Key Controls in TUI:
+- **`[A]` Analyze source file(s):** Enter file paths (comma-separated for multiple files) to perform static analysis.
+- **`[C]` Compare saved log files:** Opens a checklist to select multiple logs from the `logs/` directory and compare them.
+- **`[L]` List or delete logs:** Browse, view contents of, or delete your saved run logs.
+- **`[D]` Change current folder:** Change the active folder/workspace for analysis and log storage.
+- **`[H]` Help:** View keyboard shortcuts and help commands.
+- **`[Q] / Esc`:** Exit the current screen or quit the application.
 
 ---
 
-## Build a Package
+## CLI Usage Examples
+
+### 1. Analyze a Source File
+
+Analyze a source file and display the results in the terminal:
+
+```bash
+code-analyzer analyze <source-file> [--output <path>] [--function <name>]
+```
+
+- **Basic Analysis:**
+  ```bash
+  code-analyzer analyze sample.js
+  ```
+- **Save Results:**
+  ```bash
+  code-analyzer analyze sample.js --output analysis.json
+  ```
+- **Function-Scoped Analysis:**
+  ```bash
+  code-analyzer analyze sample.js --function fetchData
+  ```
+
+### 2. Compare Source Files or Log Files
+
+Compare two or more files (both raw source code files and parsed log files are supported):
+
+```bash
+code-analyzer compare <log1> <log2> [log3 ...] [--output <path>] [--function <name>]
+```
+
+- **Exactly 2 logs / files:** Compares the two sources, displaying details, anomalies, and metrics (including function diffs if comparing source files).
+- **3 or more logs / files:** Automatically runs a multi-log comparison pipeline, rendering key findings summaries, comparison tables, and bar charts in the terminal.
+- **Function-Scoped Comparison:**
+  ```bash
+  code-analyzer compare sample.js baseline.json --function multiply
+  ```
+
+---
+
+## Build and Package
 
 ### macOS Release Binary
 
-To compile the release binary on macOS:
+To compile the release binary:
 
 ```bash
 cargo build --release
