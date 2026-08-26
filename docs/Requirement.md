@@ -18,3 +18,12 @@ Functions:
 - helper: 2 lines
 
 Running the code creates a .logs folder inside the folder where the file is present. Inside this folder, a report with the appropriate number should be created.
+
+The command should output this in the terminal. [Not Done]
+
+For now it only supports the .js files. I would like to add support for the following file types.
+
+.ts - TypeScript
+.tsx - TypeScript React
+.jsx - React
+.vue - Vue
