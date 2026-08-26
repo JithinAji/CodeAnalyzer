@@ -17,3 +17,4 @@ Functions:
 - add: 2 lines
 - helper: 2 lines
 
+Running the code creates a .logs folder inside the folder where the file is present. Inside this folder, a report with the appropriate number should be created.
