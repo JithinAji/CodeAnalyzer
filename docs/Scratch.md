@@ -5,3 +5,5 @@ Requirement.md - I will be adding the requirements of the application here. Kind
 Scratch.md - I will be using this file to dump my thoughts and ideas for the application. This is kind of like a scratchpad for me to think and plan.
 
 Features Folder - This folder will contain the features of the application. Each feature will be in its own folder and will have its own set of requirements, design documents, and implementation plans. This is kind of like a modular approach to software development. 
+
+Files.md - This file will contain the list of files in the application and a brief description of each file. This will be in a tree structure similar to the file system structure of the application. 
